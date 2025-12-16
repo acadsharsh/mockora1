@@ -75,7 +75,7 @@ attemptsRouter.get("/attempts/:attemptId/overview", requireAuth, requireRole(Use
             // palette state
             visited: a?.visited ?? false,
             isMarked: a?.isMarked ?? false,
-            hasResponse: a?.responseJson != null
+            hasResponse: a?.responseJson != null,
 			responseJson: a?.responseJson ?? null,
             timeSpentMs: a?.timeSpentMs ?? 0
           };

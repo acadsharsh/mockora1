@@ -3,47 +3,49 @@ import { z } from "zod";
 import { requireAuth, requireRole, AuthedRequest } from "../../middleware/auth";
 import { UserRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { presignPutObject, presignGetObject, publicUrlForKey } from "../../lib/storage";
+import { randomToken } from "../../lib/security";
 
 export const creatorRouter = Router();
 
 creatorRouter.use(requireAuth, requireRole(UserRole.CREATOR, UserRole.ADMIN));
 
 /**
- * Step 1: init PDF upload (returns presigned PUT URL)
+ * NOTE (Supabase Option A):
+ * - We are NOT using S3/R2 presigned URLs anymore.
+ * - PDF is NOT stored on backend storage. We only store metadata in DB for grouping/traceability.
+ * - Images are uploaded via: POST /v1/assets/images/upload (multer -> Supabase Storage)
  */
-const InitPdfSchema = z.object({
+
+/**
+ * Step 1 (metadata only): register a PDF (no upload)
+ * Frontend can render PDF locally using PDF.js from the user's file.
+ */
+const RegisterPdfSchema = z.object({
   originalName: z.string().min(1).max(200),
-  contentType: z.string().min(1) // application/pdf
+  pageCount: z.number().int().min(1).max(2000).optional()
 });
 
-creatorRouter.post("/pdfs/init", async (req: AuthedRequest, res) => {
-  const body = InitPdfSchema.parse(req.body);
+creatorRouter.post("/pdfs/register", async (req: AuthedRequest, res) => {
+  const body = RegisterPdfSchema.parse(req.body);
 
-  if (body.contentType !== "application/pdf") {
-    return res.status(400).json({ error: "PDF_REQUIRED" });
-  }
+  // fileKey is required by your current schema; we store a unique placeholder
+  const fileKey = `local-only/${req.user!.id}/${Date.now()}-${randomToken(10)}`;
 
-  const pdfId = (await prisma.pdfDocument.create({
+  const pdf = await prisma.pdfDocument.create({
     data: {
       creatorId: req.user!.id,
       originalName: body.originalName,
-      fileKey: `pdfs/${req.user!.id}/${Date.now()}-${Math.random().toString(16).slice(2)}.pdf`
-    },
-    select: { id: true, fileKey: true }
-  }));
-
-  const uploadUrl = await presignPutObject({
-    key: pdfId.fileKey,
-    contentType: "application/pdf",
-    expiresSec: 300
+      fileKey,
+      pageCount: body.pageCount ?? null,
+      status: "READY"
+    }
   });
 
-  res.status(201).json({ pdfId: pdfId.id, uploadUrl });
+  res.status(201).json({ pdf });
 });
 
 /**
- * Step 1b: complete PDF (frontend sends pageCount after reading via PDF.js)
+ * Step 1b: complete PDF metadata (optional)
  */
 const CompletePdfSchema = z.object({
   pageCount: z.number().int().min(1).max(2000)
@@ -65,14 +67,12 @@ creatorRouter.post("/pdfs/:pdfId/complete", async (req: AuthedRequest, res) => {
 });
 
 /**
- * Step 2: get PDF metadata + signed URL for viewing (private)
+ * Step 2: fetch PDF metadata (NO signedUrl because we don't store PDF)
  */
 creatorRouter.get("/pdfs/:pdfId", async (req: AuthedRequest, res) => {
   const pdf = await prisma.pdfDocument.findUnique({ where: { id: req.params.pdfId } });
   if (!pdf) return res.status(404).json({ error: "NOT_FOUND" });
   if (req.user!.role !== "ADMIN" && pdf.creatorId !== req.user!.id) return res.status(403).json({ error: "FORBIDDEN" });
-
-  const signedUrl = await presignGetObject({ key: pdf.fileKey, expiresSec: 600 });
 
   res.json({
     pdf: {
@@ -81,36 +81,15 @@ creatorRouter.get("/pdfs/:pdfId", async (req: AuthedRequest, res) => {
       pageCount: pdf.pageCount,
       status: pdf.status
     },
-    signedUrl
+    storageMode: "LOCAL_ONLY"
   });
 });
 
 /**
- * Presign upload for cropped images (public assets)
- */
-const PresignImageSchema = z.object({
-  contentType: z.enum(["image/png", "image/jpeg", "image/webp"])
-});
-
-creatorRouter.post("/assets/images/presign", async (req: AuthedRequest, res) => {
-  const body = PresignImageSchema.parse(req.body);
-
-  const key = `question-images/${req.user!.id}/${Date.now()}-${Math.random().toString(16).slice(2)}.${body.contentType.split("/")[1]}`;
-  const uploadUrl = await presignPutObject({ key, contentType: body.contentType, expiresSec: 300 });
-
-  res.json({
-    key,
-    uploadUrl,
-    publicUrl: publicUrlForKey(key)
-  });
-});
-
-/**
- * Step 3: create a crop record (question crop required, options crop optional)
- * Frontend will:
- *  - presign image upload(s)
- *  - PUT images to storage
- *  - call this endpoint with crop rects + image urls
+ * Step 3: create a crop record
+ * Frontend must upload cropped images first using:
+ *   POST /v1/assets/images/upload
+ * and then call this endpoint with returned { path, publicUrl } as keys/urls.
  */
 const CreateCropSchema = z.object({
   pdfId: z.string().min(1),
@@ -119,7 +98,7 @@ const CreateCropSchema = z.object({
   questionCropJson: z.any(),
   optionsCropJson: z.any().optional(),
 
-  questionImageKey: z.string().min(1),
+  questionImageKey: z.string().min(1), // Supabase path
   questionImageUrl: z.string().url(),
 
   optionsImageKey: z.string().min(1).optional(),
@@ -150,19 +129,22 @@ creatorRouter.post("/crops", async (req: AuthedRequest, res) => {
 });
 
 creatorRouter.get("/crops/:cropId", async (req: AuthedRequest, res) => {
-  const crop = await prisma.pdfCrop.findUnique({ where: { id: req.params.cropId }, include: { pdf: true } });
+  const crop = await prisma.pdfCrop.findUnique({
+    where: { id: req.params.cropId },
+    include: { pdf: true }
+  });
   if (!crop) return res.status(404).json({ error: "NOT_FOUND" });
   if (req.user!.role !== "ADMIN" && crop.pdf.creatorId !== req.user!.id) return res.status(403).json({ error: "FORBIDDEN" });
   res.json({ crop });
 });
 
 /**
- * Step 4: Question editor creates Question from crop
+ * Step 4: create Question from crop
  */
 const CreateQuestionSchema = z.object({
   cropId: z.string().min(1),
   type: z.enum(["MCQ", "MSQ", "NUMERICAL"]),
-  answerKeyJson: z.any(), // validated more strictly per-type later if you want
+  answerKeyJson: z.any(),
   solutionText: z.string().max(8000).optional(),
 
   subject: z.string().max(80).optional(),
