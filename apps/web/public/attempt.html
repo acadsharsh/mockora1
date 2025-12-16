@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera — Attempt</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/assets/exam.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-title">Mockera</div>
+      <div class="brand-sub">Hardcore CBT</div>
+    </div>
+
+    <div class="topbar-center">
+      <div class="timer">
+        <div class="timer-label">Time Left</div>
+        <div class="timer-value" id="timerValue">--:--:--</div>
+      </div>
+
+      <div class="section">
+        <label class="section-label" for="sectionSelect">Section</label>
+        <select id="sectionSelect"></select>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="submitBtn" class="btn btn-danger">Submit</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="palette">
+      <div class="palette-head">
+        <div class="palette-title">Questions</div>
+        <div class="legend">
+          <div class="legend-item"><span class="dot dot-notvisited"></span> Not visited</div>
+          <div class="legend-item"><span class="dot dot-answered"></span> Answered</div>
+          <div class="legend-item"><span class="dot dot-marked"></span> Marked</div>
+          <div class="legend-item"><span class="dot dot-answeredmarked"></span> Answered + Marked</div>
+        </div>
+      </div>
+
+      <div id="paletteGrid" class="palette-grid"></div>
+
+      <div class="palette-foot">
+        <button id="markBtn" class="btn btn-secondary">Mark for Review</button>
+        <button id="clearBtn" class="btn btn-secondary">Clear Response</button>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <div class="qhead">
+        <div class="qmeta">
+          <div class="qnum" id="qNum">Q--</div>
+          <div class="qtype" id="qType">--</div>
+        </div>
+
+        <div class="qnav">
+          <button id="prevBtn" class="btn btn-secondary">Prev</button>
+          <button id="saveNextBtn" class="btn btn-primary">Save & Next</button>
+          <button id="nextBtn" class="btn btn-secondary">Next</button>
+        </div>
+      </div>
+
+      <div class="qbody">
+        <div class="qimage-wrap">
+          <img id="qImage" alt="Question" />
+        </div>
+      </div>
+
+      <div class="response">
+        <div class="response-title">Response</div>
+        <div id="responseArea"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/config.js"></script>
+  <script src="/assets/exam.js"></script>
+</body>
+</html>

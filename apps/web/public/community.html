@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera — Community Solutions</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{ background:#0b0f14; color:#e6edf3; font-family:system-ui; margin:0; }
+    header{ padding:14px 16px; border-bottom:1px solid #1f2937; display:flex; justify-content:space-between; }
+    main{ max-width:1100px; margin:0 auto; padding:16px; }
+    .panel{ border:1px solid #1f2937; background:#0b1220; border-radius:14px; padding:14px; }
+    textarea,input,button{ width:100%; padding:10px; border-radius:10px; border:1px solid #1f2937; background:#0f172a; color:#e6edf3; }
+    button{ cursor:pointer; font-weight:900; }
+    .list{ display:grid; gap:12px; margin-top:12px; }
+    .post{ border:1px solid #1f2937; background:#070b10; border-radius:14px; padding:12px; }
+    .muted{ color:#9aa4b2; font-size:12px; }
+    .row{ display:flex; gap:10px; align-items:center; }
+    .row > * { flex:1; }
+    img{ max-width:100%; border:1px solid #1f2937; border-radius:12px; background:#0b1220; margin-top:10px; }
+    .btnRow{ display:flex; gap:10px; margin-top:10px; }
+    .btnSmall{ width:auto; padding:8px 10px; }
+    a{ color:#93c5fd; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><b>Community Solutions</b></div>
+    <div><a href="/dashboard.html">Dashboard</a></div>
+  </header>
+
+  <main>
+    <div class="panel">
+      <div class="muted">Question ID: <span id="qid"></span></div>
+
+      <h3>Post your solution</h3>
+      <textarea id="body" rows="5" placeholder="Explain your approach..."></textarea>
+      <div class="row" style="margin-top:10px;">
+        <input id="img" type="file" accept="image/*" />
+        <button id="postBtn">Post</button>
+      </div>
+      <pre id="log"></pre>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h3>Solutions</h3>
+      <div id="list" class="list"></div>
+    </div>
+  </main>
+
+  <script src="/config.js"></script>
+  <script>
+    const API = window.MOCKERA_API_BASE;
+    const qid = new URLSearchParams(location.search).get("questionId");
+    document.getElementById("qid").textContent = qid || "(missing)";
+    const log = (m) => (document.getElementById("log").textContent += m + "\n");
+
+    async function api(path, options={}) {
+      const res = await fetch(API + path, {
+        ...options,
+        credentials:"include",
+        headers:{ "Content-Type":"application/json", ...(options.headers||{}) }
+      });
+      if (res.status === 401) location.href = "/login.html";
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    async function presignAndUpload(file) {
+      const pres = await api("/v1/assets/images/presign", {
+        method:"POST",
+        body: JSON.stringify({ contentType: file.type.includes("png") ? "image/png" : (file.type.includes("webp") ? "image/webp" : "image/jpeg") })
+      });
+
+      const put = await fetch(pres.uploadUrl, { method:"PUT", headers:{ "Content-Type": file.type }, body: file });
+      if (!put.ok) throw new Error("Image upload failed");
+      return pres.publicUrl;
+    }
+
+    function esc(s){ return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+
+    async function load() {
+      const out = await api(`/v1/questions/${encodeURIComponent(qid)}/solutions`);
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+
+      out.posts.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "post";
+        div.innerHTML = `
+          <div><b>${esc(p.author.name || "User")}</b> <span class="muted">• ${new Date(p.createdAt).toLocaleString()}</span></div>
+          <div style="margin-top:8px; white-space:pre-wrap;">${esc(p.bodyText)}</div>
+          ${p.imageUrl ? `<img src="${p.imageUrl}" />` : ""}
+          <div class="btnRow">
+            <button class="btnSmall" data-up="${p.id}">Upvote (${p._count.upvotes})</button>
+            <button class="btnSmall" data-c="${p.id}">Comments (${p._count.comments})</button>
+            <button class="btnSmall" data-r="${p.id}">Report</button>
+          </div>
+          <div class="muted" id="cwrap-${p.id}" style="display:none; margin-top:10px;"></div>
+        `;
+
+        div.querySelector(`[data-up="${p.id}"]`).onclick = async () => {
+          await api(`/v1/solutions/${encodeURIComponent(p.id)}/upvote`, { method:"POST", body:"{}" });
+          await load();
+        };
+
+        div.querySelector(`[data-c="${p.id}"]`).onclick = async () => {
+          const wrap = document.getElementById(`cwrap-${p.id}`);
+          if (wrap.style.display === "none") {
+            const outC = await api(`/v1/solutions/${encodeURIComponent(p.id)}/comments`);
+            wrap.style.display = "block";
+            wrap.innerHTML = outC.comments.map(c => `<div style="margin-top:6px;"><b>${esc(c.author.name||"User")}:</b> ${esc(c.bodyText)}</div>`).join("") +
+              `<div style="margin-top:10px;"><input id="in-${p.id}" placeholder="Write a comment..." /></div>
+               <div style="margin-top:8px;"><button class="btnSmall" id="send-${p.id}">Send</button></div>`;
+            document.getElementById(`send-${p.id}`).onclick = async () => {
+              const txt = document.getElementById(`in-${p.id}`).value.trim();
+              if (!txt) return;
+              await api(`/v1/solutions/${encodeURIComponent(p.id)}/comments`, {
+                method:"POST",
+                body: JSON.stringify({ bodyText: txt })
+              });
+              await load();
+            };
+          } else {
+            wrap.style.display = "none";
+          }
+        };
+
+        div.querySelector(`[data-r="${p.id}"]`).onclick = async () => {
+          const reason = prompt("Report reason (brief):");
+          if (!reason) return;
+          await api(`/v1/reports`, {
+            method:"POST",
+            body: JSON.stringify({ targetType:"SOLUTION_POST", targetId: p.id, reason })
+          });
+          alert("Reported.");
+        };
+
+        list.appendChild(div);
+      });
+    }
+
+    document.getElementById("postBtn").onclick = async () => {
+      if (!qid) return alert("Missing questionId");
+      const body = document.getElementById("body").value.trim();
+      if (!body) return;
+
+      let imageUrl;
+      const file = document.getElementById("img").files[0];
+      if (file) imageUrl = await presignAndUpload(file);
+
+      await api(`/v1/questions/${encodeURIComponent(qid)}/solutions`, {
+        method:"POST",
+        body: JSON.stringify({ bodyText: body, imageUrl })
+      });
+
+      document.getElementById("body").value = "";
+      document.getElementById("img").value = "";
+      log("Posted.");
+      await load();
+    };
+
+    load().catch(e => alert(e.message));
+  </script>
+</body>
+</html>

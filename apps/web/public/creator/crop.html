@@ -1,0 +1,234 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera Creator — Crop</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; background:#0b0f14; color:#e6edf3; font-family: system-ui; }
+    header { padding:12px 16px; display:flex; gap:10px; align-items:center; border-bottom:1px solid #1f2937; }
+    button { padding:8px 10px; cursor:pointer; }
+    main { padding:16px; display:flex; gap:16px; }
+    .stage { position:relative; }
+    canvas { border:1px solid #1f2937; background:#111827; }
+    .overlay { position:absolute; inset:0; }
+    .panel { width:320px; border:1px solid #1f2937; padding:12px; height:fit-content; }
+    .small { font-size:12px; opacity:0.85; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.min.js"></script>
+</head>
+<body>
+<header>
+  <button id="modeQ">Question crop</button>
+  <button id="modeO">Options crop</button>
+  <button id="save">Save crop</button>
+  <div id="status" class="small"></div>
+</header>
+
+<main>
+  <div class="stage">
+    <canvas id="pageCanvas"></canvas>
+    <canvas id="overlay" class="overlay"></canvas>
+  </div>
+
+  <div class="panel">
+    <div><b>Current mode:</b> <span id="modeLabel">QUESTION</span></div>
+    <div class="small" style="margin-top:8px;">
+      Drag to draw rectangle. Save will upload cropped PNG(s) + create crop record.
+    </div>
+    <hr style="border-color:#1f2937" />
+    <div class="small" id="rectInfo">No rectangle yet.</div>
+  </div>
+</main>
+
+<script>
+  const API_BASE = window.MOCKERA_API_BASE || "https://YOUR-API-DOMAIN";
+  const qs = new URLSearchParams(location.search);
+  const pdfId = qs.get("pdfId");
+  const pageNumber = Number(qs.get("page") || "1");
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.worker.min.js";
+
+  const statusEl = document.getElementById("status");
+  const modeLabel = document.getElementById("modeLabel");
+  const rectInfo = document.getElementById("rectInfo");
+
+  let mode = "QUESTION"; // or OPTIONS
+  let pdfDoc, page, renderScale = 1.5;
+
+  let rectQ = null;
+  let rectO = null;
+
+  const pageCanvas = document.getElementById("pageCanvas");
+  const overlay = document.getElementById("overlay");
+  const octx = overlay.getContext("2d");
+
+  function setStatus(t) { statusEl.textContent = t; }
+  function setMode(m) { mode = m; modeLabel.textContent = m; redraw(); }
+
+  document.getElementById("modeQ").onclick = () => setMode("QUESTION");
+  document.getElementById("modeO").onclick = () => setMode("OPTIONS");
+
+  function drawRect(r, color) {
+    if (!r) return;
+    octx.strokeStyle = color;
+    octx.lineWidth = 3;
+    octx.strokeRect(r.x, r.y, r.w, r.h);
+  }
+
+  function redraw(tempRect=null) {
+    octx.clearRect(0,0,overlay.width, overlay.height);
+    drawRect(rectQ, "#7ee787");
+    drawRect(rectO, "#60a5fa");
+    if (tempRect) drawRect(tempRect, mode === "QUESTION" ? "#7ee787" : "#60a5fa");
+  }
+
+  let dragging = false;
+  let startX=0, startY=0;
+
+  overlay.addEventListener("mousedown", (e) => {
+    const r = overlay.getBoundingClientRect();
+    startX = Math.max(0, Math.min(overlay.width, e.clientX - r.left));
+    startY = Math.max(0, Math.min(overlay.height, e.clientY - r.top));
+    dragging = true;
+  });
+
+  overlay.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const r = overlay.getBoundingClientRect();
+    const x = Math.max(0, Math.min(overlay.width, e.clientX - r.left));
+    const y = Math.max(0, Math.min(overlay.height, e.clientY - r.top));
+    const temp = {
+      x: Math.min(startX, x),
+      y: Math.min(startY, y),
+      w: Math.abs(x - startX),
+      h: Math.abs(y - startY)
+    };
+    redraw(temp);
+  });
+
+  overlay.addEventListener("mouseup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const r = overlay.getBoundingClientRect();
+    const x = Math.max(0, Math.min(overlay.width, e.clientX - r.left));
+    const y = Math.max(0, Math.min(overlay.height, e.clientY - r.top));
+    const rect = {
+      x: Math.floor(Math.min(startX, x)),
+      y: Math.floor(Math.min(startY, y)),
+      w: Math.floor(Math.abs(x - startX)),
+      h: Math.floor(Math.abs(y - startY)),
+      renderScale
+    };
+
+    if (rect.w < 5 || rect.h < 5) return;
+
+    if (mode === "QUESTION") rectQ = rect;
+    else rectO = rect;
+
+    rectInfo.textContent = `Q: ${rectQ ? JSON.stringify(rectQ) : "none"}\nO: ${rectO ? JSON.stringify(rectO) : "none"}`;
+    redraw();
+  });
+
+  async function loadPdf() {
+    setStatus("Loading signed PDF URL...");
+    const res = await fetch(`${API_BASE}/v1/creator/pdfs/${encodeURIComponent(pdfId)}`, { credentials:"include" });
+    if (!res.ok) throw new Error(await res.text());
+    const { signedUrl } = await res.json();
+
+    setStatus("Rendering page...");
+    pdfDoc = await pdfjsLib.getDocument({ url: signedUrl }).promise;
+    page = await pdfDoc.getPage(pageNumber);
+
+    const viewport = page.getViewport({ scale: renderScale });
+    const ctx = pageCanvas.getContext("2d");
+
+    pageCanvas.width = Math.floor(viewport.width);
+    pageCanvas.height = Math.floor(viewport.height);
+    overlay.width = pageCanvas.width;
+    overlay.height = pageCanvas.height;
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    redraw();
+    setStatus(`Ready. Page ${pageNumber}`);
+  }
+
+  function cropToBlob(rect) {
+    const out = document.createElement("canvas");
+    out.width = rect.w;
+    out.height = rect.h;
+    const outCtx = out.getContext("2d");
+    outCtx.drawImage(pageCanvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    return new Promise((resolve) => out.toBlob(resolve, "image/png", 1.0));
+  }
+
+  async function presignImage() {
+    const res = await fetch(`${API_BASE}/v1/creator/assets/images/presign`, {
+      method:"POST",
+      credentials:"include",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ contentType: "image/png" })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json(); // { key, uploadUrl, publicUrl }
+  }
+
+  async function putToStorage(uploadUrl, blob) {
+    const r = await fetch(uploadUrl, { method:"PUT", headers:{ "Content-Type":"image/png" }, body: blob });
+    if (!r.ok) throw new Error("Upload failed");
+  }
+
+  document.getElementById("save").onclick = async () => {
+    try {
+      if (!rectQ) return alert("Question crop is required.");
+
+      setStatus("Cropping...");
+      const qBlob = await cropToBlob(rectQ);
+
+      setStatus("Presigning question image upload...");
+      const qUp = await presignImage();
+
+      setStatus("Uploading question image...");
+      await putToStorage(qUp.uploadUrl, qBlob);
+
+      let oUp = null;
+      if (rectO) {
+        const oBlob = await cropToBlob(rectO);
+        setStatus("Presigning options image upload...");
+        oUp = await presignImage();
+        setStatus("Uploading options image...");
+        await putToStorage(oUp.uploadUrl, oBlob);
+      }
+
+      setStatus("Creating crop record...");
+      const cropRes = await fetch(`${API_BASE}/v1/creator/crops`, {
+        method:"POST",
+        credentials:"include",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+          pdfId,
+          pageNumber,
+          questionCropJson: rectQ,
+          optionsCropJson: rectO || undefined,
+          questionImageKey: qUp.key,
+          questionImageUrl: qUp.publicUrl,
+          optionsImageKey: oUp?.key,
+          optionsImageUrl: oUp?.publicUrl
+        })
+      });
+      if (!cropRes.ok) throw new Error(await cropRes.text());
+      const { crop } = await cropRes.json();
+
+      setStatus("Done. Redirecting to question editor...");
+      window.location.href = `/creator/question-editor.html?cropId=${encodeURIComponent(crop.id)}`;
+    } catch (e) {
+      alert(e.message || String(e));
+      setStatus("Error.");
+    }
+  };
+
+  loadPdf().catch(err => alert(err.message));
+</script>
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera — Group</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{ background:#0b0f14; color:#e6edf3; font-family:system-ui; margin:0; }
+    header{ padding:14px 16px; border-bottom:1px solid #1f2937; display:flex; justify-content:space-between; }
+    main{ max-width:1100px; margin:0 auto; padding:16px; }
+    .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .panel{ border:1px solid #1f2937; background:#0b1220; border-radius:14px; padding:14px; }
+    input,button{ width:100%; padding:10px; border-radius:10px; border:1px solid #1f2937; background:#0f172a; color:#e6edf3; }
+    button{ cursor:pointer; font-weight:800; }
+    .muted{ color:#9aa4b2; font-size:12px; }
+    .row{ display:flex; gap:10px; }
+    .row > *{ flex:1; }
+    .list{ display:grid; gap:10px; margin-top:10px; }
+    .item{ border:1px solid #1f2937; background:#070b10; border-radius:12px; padding:12px; }
+    a{ color:#93c5fd; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><a href="/groups.html">← Groups</a></div>
+    <div id="title"></div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <div class="panel">
+        <h3>Invite link</h3>
+        <div class="muted">Owner/Mod can generate invite codes.</div>
+        <button id="inviteBtn">Create Invite</button>
+        <input id="inviteOut" readonly placeholder="Invite link will appear here" />
+      </div>
+
+      <div class="panel">
+        <h3>Assign test to group</h3>
+        <div class="muted">Requires CREATOR/ADMIN and group OWNER/MOD.</div>
+        <div class="row">
+          <input id="testId" placeholder="Test ID" />
+          <button id="assignBtn">Assign</button>
+        </div>
+        <pre id="log"></pre>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h3>Assigned tests</h3>
+      <div id="tests" class="list"></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h3>Members</h3>
+      <div id="members" class="list"></div>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h3>Leaderboard</h3>
+      <div class="row">
+        <input id="lbTestId" placeholder="Test ID for leaderboard" />
+        <button id="lbBtn">Load</button>
+      </div>
+      <div id="lb" class="list"></div>
+    </div>
+  </main>
+
+  <script src="/config.js"></script>
+  <script>
+    const API = window.MOCKERA_API_BASE;
+    const groupId = new URLSearchParams(location.search).get("groupId");
+    const log = (m) => (document.getElementById("log").textContent += m + "\n");
+
+    async function api(path, options={}) {
+      const res = await fetch(API + path, {
+        ...options,
+        credentials:"include",
+        headers:{ "Content-Type":"application/json", ...(options.headers||{}) }
+      });
+      if (res.status === 401) location.href = "/login.html";
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function renderGroup(g) {
+      document.getElementById("title").innerHTML = `<b>${g.name}</b> <span class="muted">(${g.id})</span>`;
+
+      const tests = document.getElementById("tests");
+      tests.innerHTML = "";
+      g.assignments.forEach(a => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `<b>${a.test.title}</b> <div class="muted">${a.test.id} • ${a.test.visibility} • ${a.test.status} • ${a.test.durationSec}s</div>
+          <div style="margin-top:8px;">
+            <a href="/attempt.html?testId=${encodeURIComponent(a.test.id)}">Attempt</a>
+          </div>`;
+        tests.appendChild(div);
+      });
+
+      const members = document.getElementById("members");
+      members.innerHTML = "";
+      g.members.forEach(m => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `<b>${m.user.name || m.user.email}</b> <div class="muted">${m.role} • ${m.user.email}</div>`;
+        members.appendChild(div);
+      });
+    }
+
+    document.getElementById("inviteBtn").onclick = async () => {
+      const out = await api(`/v1/groups/${encodeURIComponent(groupId)}/invites`, {
+        method:"POST",
+        body: JSON.stringify({ expiresInDays: 30 })
+      });
+      const link = `${location.origin}/groups.html?join=${encodeURIComponent(out.invite.code)}`;
+      document.getElementById("inviteOut").value = link;
+    };
+
+    document.getElementById("assignBtn").onclick = async () => {
+      const testId = document.getElementById("testId").value.trim();
+      if (!testId) return;
+      await api(`/v1/groups/${encodeURIComponent(groupId)}/tests/${encodeURIComponent(testId)}/assign`, {
+        method:"POST", body:"{}"
+      });
+      log("Assigned: " + testId);
+      await load();
+    };
+
+    document.getElementById("lbBtn").onclick = async () => {
+      const testId = document.getElementById("lbTestId").value.trim();
+      if (!testId) return;
+      const out = await api(`/v1/groups/${encodeURIComponent(groupId)}/leaderboard?testId=${encodeURIComponent(testId)}`);
+      const lb = document.getElementById("lb");
+      lb.innerHTML = "";
+      out.leaderboard.forEach(r => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `<b>#${r.rank} ${r.student.name || r.student.email}</b>
+          <div class="muted">Score: ${r.score}/${r.maxScore} • Accuracy: ${Math.round(r.accuracy*1000)/10}%</div>`;
+        lb.appendChild(div);
+      });
+    };
+
+    async function load() {
+      const out = await api(`/v1/groups/${encodeURIComponent(groupId)}`);
+      renderGroup(out.group);
+    }
+
+    load().catch(e => alert(e.message));
+  </script>
+</body>
+</html>

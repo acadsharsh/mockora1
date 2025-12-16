@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera — Analysis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/assets/analysis.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="left">
+      <div class="title">Analysis</div>
+      <div class="subtitle" id="testTitle">—</div>
+    </div>
+    <div class="right">
+      <a class="linkbtn" href="/dashboard.html">Dashboard</a>
+      <a class="linkbtn" id="reattemptLink" href="#">Re-attempt</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="cards">
+      <div class="card">
+        <div class="label">Score</div>
+        <div class="value" id="scoreValue">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Accuracy</div>
+        <div class="value" id="accuracyValue">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Correct / Wrong / Unattempted</div>
+        <div class="value" id="cwuValue">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Total time</div>
+        <div class="value" id="timeValue">—</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-title">Outcome</div>
+        <canvas id="chartOutcome" height="140"></canvas>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Subject-wise score</div>
+        <canvas id="chartSubjects" height="140"></canvas>
+      </div>
+
+      <div class="panel span2">
+        <div class="panel-title">Time per question</div>
+        <canvas id="chartTime" height="120"></canvas>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Question review</div>
+
+      <div class="toolbar">
+        <select id="filterSelect">
+          <option value="ALL">All</option>
+          <option value="CORRECT">Correct</option>
+          <option value="WRONG">Wrong</option>
+          <option value="UNATTEMPTED">Unattempted</option>
+          <option value="MARKED">Marked</option>
+        </select>
+
+        <input id="searchBox" placeholder="Search subject/chapter..." />
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Section</th>
+              <th>Subject</th>
+              <th>Chapter</th>
+              <th>Type</th>
+              <th>Result</th>
+              <th>Marks</th>
+              <th>Time</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="qTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-backdrop" id="modalClose"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="modal-title" id="modalTitle">Question</div>
+        <button class="xbtn" id="modalX">Close</button>
+      </div>
+      <div class="modal-body">
+        <img id="modalImg" alt="Question image" />
+        <div class="meta" id="modalMeta"></div>
+        <pre class="json" id="modalJson"></pre>
+        <div class="solution" id="modalSolution"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/assets/analysis.js"></script>
+</body>
+</html>

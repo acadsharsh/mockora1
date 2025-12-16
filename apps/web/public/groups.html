@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera — Groups</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{ background:#0b0f14; color:#e6edf3; font-family:system-ui; margin:0; }
+    header{ padding:14px 16px; border-bottom:1px solid #1f2937; display:flex; justify-content:space-between; }
+    main{ max-width:1000px; margin:0 auto; padding:16px; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; }
+    .panel{ border:1px solid #1f2937; background:#0b1220; border-radius:14px; padding:14px; flex:1; min-width:280px; }
+    input,textarea,button{ width:100%; padding:10px; border-radius:10px; border:1px solid #1f2937; background:#0f172a; color:#e6edf3; }
+    button{ cursor:pointer; font-weight:800; }
+    a{ color:#93c5fd; text-decoration:none; }
+    .list{ margin-top:12px; display:grid; gap:10px; }
+    .item{ border:1px solid #1f2937; background:#070b10; border-radius:12px; padding:12px; display:flex; justify-content:space-between; gap:10px; }
+    .muted{ color:#9aa4b2; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><b>Groups</b></div>
+    <div><a href="/dashboard.html">Dashboard</a></div>
+  </header>
+
+  <main>
+    <div class="row">
+      <div class="panel">
+        <h3>Create group</h3>
+        <input id="gName" placeholder="Group name" />
+        <textarea id="gDesc" rows="3" placeholder="Description (optional)"></textarea>
+        <button id="createBtn">Create</button>
+        <pre id="log"></pre>
+      </div>
+
+      <div class="panel">
+        <h3>Join via invite code</h3>
+        <input id="inviteCode" placeholder="Paste code from invite link" />
+        <button id="joinBtn">Join</button>
+        <div class="muted">Invite link format: <code>/groups.html?join=CODE</code></div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:16px;">My groups</h3>
+    <div class="list" id="list"></div>
+  </main>
+
+  <script src="/config.js"></script>
+  <script>
+    const API = window.MOCKERA_API_BASE;
+    const qs = new URLSearchParams(location.search);
+    const joinCode = qs.get("join");
+    const log = (m) => (document.getElementById("log").textContent += m + "\n");
+
+    async function api(path, options={}) {
+      const res = await fetch(API + path, {
+        ...options,
+        credentials:"include",
+        headers:{ "Content-Type":"application/json", ...(options.headers||{}) }
+      });
+      if (res.status === 401) location.href = "/login.html";
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    async function load() {
+      const { groups } = await api("/v1/groups");
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+      groups.forEach(g => {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `
+          <div>
+            <div><b>${g.name}</b></div>
+            <div class="muted">${g.description || "—"} • members: ${g._count.members}</div>
+          </div>
+          <div><a href="/group.html?groupId=${encodeURIComponent(g.id)}">Open</a></div>
+        `;
+        list.appendChild(div);
+      });
+    }
+
+    document.getElementById("createBtn").onclick = async () => {
+      const name = document.getElementById("gName").value.trim();
+      const description = document.getElementById("gDesc").value.trim() || undefined;
+      const out = await api("/v1/groups", { method:"POST", body: JSON.stringify({ name, description }) });
+      log("Created: " + out.group.id);
+      await load();
+    };
+
+    document.getElementById("joinBtn").onclick = async () => {
+      const code = document.getElementById("inviteCode").value.trim();
+      if (!code) return;
+      const out = await api(`/v1/invites/${encodeURIComponent(code)}/join`, { method:"POST", body:"{}" });
+      location.href = `/group.html?groupId=${encodeURIComponent(out.groupId)}`;
+    };
+
+    (async () => {
+      if (joinCode) {
+        document.getElementById("inviteCode").value = joinCode;
+      }
+      await load();
+    })().catch(e => alert(e.message));
+  </script>
+</body>
+</html>

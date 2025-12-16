@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera Creator — Upload PDF</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { background:#0b0f14; color:#e6edf3; font-family: system-ui; padding:24px; }
+    .box { max-width:720px; margin:0 auto; }
+    input, button { padding:10px 12px; font-size:14px; }
+    button { cursor:pointer; }
+    a { color:#7ee787; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.min.js"></script>
+</head>
+<body>
+  <div class="box">
+    <h1>Upload PDF</h1>
+    <p>Only PDF. Stored on backend storage. Page count extracted client-side.</p>
+
+    <input id="file" type="file" accept="application/pdf" />
+    <button id="uploadBtn">Upload</button>
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const API_BASE = window.MOCKERA_API_BASE || "https://YOUR-API-DOMAIN";
+    const log = (m) => (document.getElementById("log").textContent += m + "\n");
+
+    document.getElementById("uploadBtn").addEventListener("click", async () => {
+      const f = document.getElementById("file").files[0];
+      if (!f) return log("Pick a PDF first.");
+      if (f.type !== "application/pdf") return log("Only PDF allowed.");
+
+      log("Init upload...");
+      const initRes = await fetch(`${API_BASE}/v1/creator/pdfs/init`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ originalName: f.name, contentType: f.type })
+      });
+      if (!initRes.ok) return log("Init failed: " + await initRes.text());
+      const { pdfId, uploadUrl } = await initRes.json();
+
+      log("Uploading to storage (PUT)...");
+      const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: f });
+      if (!putRes.ok) return log("Storage upload failed.");
+
+      log("Reading page count with PDF.js...");
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.worker.min.js";
+      const ab = await f.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+      const pageCount = pdf.numPages;
+
+      log("Completing PDF...");
+      const completeRes = await fetch(`${API_BASE}/v1/creator/pdfs/${pdfId}/complete`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageCount })
+      });
+      if (!completeRes.ok) return log("Complete failed: " + await completeRes.text());
+
+      log("Done. Redirecting to viewer...");
+      window.location.href = `/creator/pdf.html?pdfId=${encodeURIComponent(pdfId)}`;
+    });
+  </script>
+</body>
+</html>

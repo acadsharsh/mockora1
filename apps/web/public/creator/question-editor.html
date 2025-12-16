@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera Creator — Question Editor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { background:#0b0f14; color:#e6edf3; font-family: system-ui; padding:16px; }
+    .row { display:flex; gap:16px; align-items:flex-start; }
+    img { max-width:520px; border:1px solid #1f2937; }
+    label { display:block; margin-top:10px; }
+    input, select, textarea, button { width:100%; padding:10px; background:#0f172a; color:#e6edf3; border:1px solid #1f2937; }
+    button { cursor:pointer; margin-top:12px; }
+    .col { width:420px; }
+  </style>
+</head>
+<body>
+  <h1>Question Editor</h1>
+
+  <div class="row">
+    <div>
+      <div class="small">Prompt image</div>
+      <img id="promptImg" />
+      <div class="small" style="margin-top:10px;">Options image (optional)</div>
+      <img id="optionsImg" />
+    </div>
+
+    <div class="col">
+      <label>Type</label>
+      <select id="type">
+        <option value="MCQ">MCQ</option>
+        <option value="MSQ">MSQ</option>
+        <option value="NUMERICAL">Numerical</option>
+      </select>
+
+      <label>Answer Key JSON</label>
+      <textarea id="answerKey" rows="6">{ "correctOption": 0 }</textarea>
+
+      <label>Subject</label>
+      <input id="subject" placeholder="Physics / Chemistry / Maths" />
+
+      <label>Chapter</label>
+      <input id="chapter" placeholder="e.g. Electrostatics" />
+
+      <label>Difficulty</label>
+      <select id="difficulty">
+        <option value="EASY">Easy</option>
+        <option value="MEDIUM" selected>Medium</option>
+        <option value="HARD">Hard</option>
+      </select>
+
+      <label>Solution (text)</label>
+      <textarea id="solutionText" rows="5"></textarea>
+
+      <button id="create">Create Question</button>
+      <pre id="log"></pre>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = window.MOCKERA_API_BASE || "https://YOUR-API-DOMAIN";
+  const qs = new URLSearchParams(location.search);
+  const cropId = qs.get("cropId");
+  const log = (m) => (document.getElementById("log").textContent += m + "\n");
+
+  async function loadCrop() {
+    const res = await fetch(`${API_BASE}/v1/creator/crops/${encodeURIComponent(cropId)}`, { credentials:"include" });
+    if (!res.ok) throw new Error(await res.text());
+    const { crop } = await res.json();
+
+    document.getElementById("promptImg").src = crop.questionImageUrl;
+    document.getElementById("optionsImg").src = crop.optionsImageUrl || "";
+    document.getElementById("optionsImg").style.display = crop.optionsImageUrl ? "block" : "none";
+  }
+
+  document.getElementById("create").onclick = async () => {
+    let answerKeyJson;
+    try {
+      answerKeyJson = JSON.parse(document.getElementById("answerKey").value);
+    } catch {
+      return alert("Answer Key JSON is invalid.");
+    }
+
+    const payload = {
+      cropId,
+      type: document.getElementById("type").value,
+      answerKeyJson,
+      subject: document.getElementById("subject").value || undefined,
+      chapter: document.getElementById("chapter").value || undefined,
+      difficulty: document.getElementById("difficulty").value,
+      solutionText: document.getElementById("solutionText").value || undefined
+    };
+
+    log("Creating question...");
+    const res = await fetch(`${API_BASE}/v1/creator/questions`, {
+      method:"POST",
+      credentials:"include",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) return log("Failed: " + await res.text());
+    const { question } = await res.json();
+    log("Created question: " + question.id);
+    // Next: attaching to a test is part of creator test-building; can be wired in Phase 2 extension or used with Phase 1 test endpoints.
+  };
+
+  loadCrop().catch(e => alert(e.message || String(e)));
+</script>
+</body>
+</html>

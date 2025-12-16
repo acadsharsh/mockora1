@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mockera Creator — PDF Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; background:#0b0f14; color:#e6edf3; font-family: system-ui; }
+    header { padding:12px 16px; display:flex; gap:12px; align-items:center; border-bottom:1px solid #1f2937; }
+    main { padding:16px; display:flex; justify-content:center; }
+    canvas { border:1px solid #1f2937; background:#111827; }
+    button { padding:8px 10px; cursor:pointer; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.min.js"></script>
+</head>
+<body>
+  <header>
+    <button id="prev">Prev</button>
+    <div id="pageInfo"></div>
+    <button id="next">Next</button>
+    <div style="flex:1"></div>
+    <button id="crop">Crop on this page</button>
+  </header>
+
+  <main>
+    <canvas id="c"></canvas>
+  </main>
+
+  <script>
+    const API_BASE = window.MOCKERA_API_BASE || "https://YOUR-API-DOMAIN";
+    const qs = new URLSearchParams(location.search);
+    const pdfId = qs.get("pdfId");
+
+    let pdfDoc = null;
+    let current = 1;
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.worker.min.js";
+
+    async function load() {
+      const res = await fetch(`${API_BASE}/v1/creator/pdfs/${encodeURIComponent(pdfId)}`, { credentials:"include" });
+      if (!res.ok) throw new Error(await res.text());
+      const { signedUrl } = await res.json();
+
+      pdfDoc = await pdfjsLib.getDocument({ url: signedUrl }).promise;
+      render();
+    }
+
+    async function render() {
+      const page = await pdfDoc.getPage(current);
+      const scale = 1.5;
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.getElementById("c");
+      const ctx = canvas.getContext("2d");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      document.getElementById("pageInfo").textContent = `Page ${current} / ${pdfDoc.numPages}`;
+    }
+
+    document.getElementById("prev").onclick = () => { if (current > 1) { current--; render(); } };
+    document.getElementById("next").onclick = () => { if (current < pdfDoc.numPages) { current++; render(); } };
+    document.getElementById("crop").onclick = () => {
+      window.location.href = `/creator/crop.html?pdfId=${encodeURIComponent(pdfId)}&page=${current}`;
+    };
+
+    load().catch(err => alert(err.message));
+  </script>
+</body>
+</html>
